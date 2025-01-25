@@ -1,166 +1,175 @@
 """
-Interface to weeebot bluetooth
-
+Interface to Weeecode Robot over BLE, fully synchronous in user-facing API.
 See: 
 https://github.com/WEEEMAKE/
 Weeemake_Libraries_for_Arduino: Weeemake/src/WeInfraredReceiver.h
 Weeemake_Factory_Firmware/twelve_in_one/twelve_in_one.ino
-
-TODO: check speed control
 """
+
 import asyncio
+import nest_asyncio
 from bleak import BleakClient, BleakError, BleakScanner
 
-DEVICE_ADDRESS = "35B598CA-A4A0-5B38-F1CF-4C00EB006299"
+# Apply nest_asyncio so we can reuse the same event loop for all operations
+nest_asyncio.apply()
+
+DEVICE_ADDRESS = "35B598CA-A4A0-5B38-F1CF-4C00EB006299"  # Replace if needed
 WRITE_CHAR_UUID = "0000f101-0000-1000-8000-00805f9b34fb"
 
-# IR Command Mappings (Hex -> Decimal)
+# IR Command Mappings (Hex -> Decimal in "IRxx" lines)
 IR_COMMANDS = {
-    "MODE_A": "IR69\n",  # 0x45 = 69 decimal
-    "FORWARD": "IR64\n",  # 0x40 = 64 decimal
-    "BACKWARD": "IR25\n",  # 0x19 = 25 decimal
-    "LEFT": "IR7\n",  # 0x07 = 7 decimal
-    "RIGHT": "IR9\n",  # 0x09 = 9 decimal
-    "BEEP": "BZ 440 300\n",
-    "SPEED_UP": "IR28\n",  # 0x1C = 28 decimal
-    "SLOW_DOWN": "IR8\n",  # 0x08 = 8 decimal
-    "STOP": "IR69\n",  # Mode A = Stop
-    "RGB": "RGB 1 255 0 0\n",  # Example RGB Command
+    "FORWARD":   "IR64\n",  # 0x40 = 64
+    "BACKWARD":  "IR25\n",  # 0x19 = 25
+    "LEFT":      "IR7\n",   # 0x07 = 7
+    "RIGHT":     "IR9\n",   # 0x09 = 9
+    "STOP":      "IR69\n",  # 0x45 = 69 (Mode A)
+    "SPEED_UP":  "IR28\n",  # 0x1C = 28
+    "SLOW_DOWN": "IR8\n",   # 0x08 = 8
 }
 
 class WeeecodeRobot:
-    """BLE Interface for Weeecode Robot with Turtle-style commands."""
-    
+    """Synchronous BLE interface for the Weeecode Robot."""
+
     def __init__(self, address=DEVICE_ADDRESS, command_delay=0.05):
         self.address = address
-        self.client = None
-        self.speed_level = 3  # Default speed level
-        self.command_delay = command_delay  # Delay between repeated commands (default: 50ms)
+        self.command_delay = command_delay
+        self.speed_level = 3  # arbitrary default
 
-    async def connect(self):
-        """Connects to the BLE device."""
+        # We'll store one event loop here and reuse it.
+        self.loop = asyncio.new_event_loop()
+        # Create a BleakClient outside coroutines
+        self.client = BleakClient(self.address, loop=self.loop)
+
+    def _run(self, coro):
+        """Runs an async function on our single, internal event loop."""
+        return self.loop.run_until_complete(coro)
+
+    def connect(self):
+        """Synchronously connect to the BLE device."""
+        return self._run(self._connect())
+
+    async def _connect(self):
         try:
-            self.client = BleakClient(self.address)
             await self.client.connect()
             print(f"Connected to {self.address}")
         except BleakError as e:
-            print(f"BLE Connection Error: {e}")
+            print(f"Connection failed: {e}")
 
-    async def disconnect(self):
-        """Disconnects from the BLE device."""
-        if self.client:
+    def disconnect(self):
+        """Synchronously disconnect from the BLE device."""
+        return self._run(self._disconnect())
+
+    async def _disconnect(self):
+        if self.client.is_connected:
             await self.client.disconnect()
             print("Disconnected.")
 
-    async def send_command(self, command):
-        """Sends a command to the robot over BLE."""
-        if self.client:
+    def send_command(self, cmd: str):
+        """Send a single command synchronously."""
+        return self._run(self._send_command(cmd))
+
+    async def _send_command(self, cmd: str):
+        if self.client.is_connected:
             try:
-                print(f"Sending: {command.strip()}")
-                await self.client.write_gatt_char(WRITE_CHAR_UUID, command.encode('utf-8'))
-                await asyncio.sleep(self.command_delay)  # Adjusted for smoother motion
+                print(f"Sending: {cmd.strip()}")
+                await self.client.write_gatt_char(
+                    WRITE_CHAR_UUID, cmd.encode('utf-8')
+                )
+                await asyncio.sleep(self.command_delay)
             except BleakError as e:
                 print(f"BLE Write Error: {e}")
 
-    def set_command_delay(self, delay):
-        """Adjusts the command delay for smoother or more responsive motion."""
-        self.command_delay = delay
-        print(f"Command delay set to {delay} seconds")
+    def move_forward(self, duration=2.0):
+        """Move forward for `duration` seconds, sending repeated IR commands."""
+        print("Moving forward...")
+        steps = int(duration / self.command_delay)
+        for _ in range(steps):
+            self.send_command(IR_COMMANDS["FORWARD"])
 
-    async def move_forward(self, duration=2.0):
-        """Moves forward for a set duration."""
-        print("Moving Forward")
-        for _ in range(int(duration / self.command_delay)):
-            await self.send_command(IR_COMMANDS["FORWARD"])
+    def move_backward(self, duration=2.0):
+        """Move backward for `duration` seconds."""
+        print("Moving backward...")
+        steps = int(duration / self.command_delay)
+        for _ in range(steps):
+            self.send_command(IR_COMMANDS["BACKWARD"])
 
-    async def move_backward(self, duration=2.0):
-        """Moves backward for a set duration."""
-        print("Moving Backward")
-        for _ in range(int(duration / self.command_delay)):
-            await self.send_command(IR_COMMANDS["BACKWARD"])
+    def turn_left(self, duration=1.0):
+        """Turn left for `duration` seconds."""
+        print("Turning left...")
+        steps = int(duration / self.command_delay)
+        for _ in range(steps):
+            self.send_command(IR_COMMANDS["LEFT"])
 
-    async def turn_left(self, duration=1.0):
-        """Turns left for a set duration."""
-        print("Turning Left")
-        for _ in range(int(duration / self.command_delay)):
-            await self.send_command(IR_COMMANDS["LEFT"])
+    def turn_right(self, duration=1.0):
+        """Turn right for `duration` seconds."""
+        print("Turning right...")
+        steps = int(duration / self.command_delay)
+        for _ in range(steps):
+            self.send_command(IR_COMMANDS["RIGHT"])
 
-    async def turn_right(self, duration=1.0):
-        """Turns right for a set duration."""
-        print("Turning Right")
-        for _ in range(int(duration / self.command_delay)):
-            await self.send_command(IR_COMMANDS["RIGHT"])
+    def stop(self):
+        """Stop all motion."""
+        print("Stopping...")
+        self.send_command(IR_COMMANDS["STOP"])
 
-    async def stop(self):
-        """Stops all movement."""
-        print("Stopping")
-        await self.send_command(IR_COMMANDS["STOP"])
-
-    async def speed_up(self):
-        """Increases speed."""
+    def speed_up(self):
+        """Increase speed one level."""
         if self.speed_level < 5:
             self.speed_level += 1
-            print(f"Increasing Speed: Level {self.speed_level}")
-            await self.send_command(IR_COMMANDS["SPEED_UP"])
+            print(f"Speed up -> level {self.speed_level}")
+            self.send_command(IR_COMMANDS["SPEED_UP"])
 
-    async def slow_down(self):
-        """Decreases speed."""
+    def slow_down(self):
+        """Decrease speed one level."""
         if self.speed_level > 1:
             self.speed_level -= 1
-            print(f"Decreasing Speed: Level {self.speed_level}")
-            await self.send_command(IR_COMMANDS["SLOW_DOWN"])
+            print(f"Slow down -> level {self.speed_level}")
+            self.send_command(IR_COMMANDS["SLOW_DOWN"])
 
-    async def beep(self, frequency=440, duration=500):
-        """Beep at a certain frequency and duration."""
+    def beep(self, frequency=440, duration=500):
+        """Play a beep at `frequency` Hz for `duration` ms."""
         cmd = f"BZ {frequency} {duration}\n"
-        print(f"Beeping: {frequency}Hz for {duration}ms")
-        await self.send_command(cmd)
+        print(f"Beeping {frequency} Hz for {duration} ms...")
+        self.send_command(cmd)
 
-    async def set_rgb(self, idx, r, g, b):
-        """Sets the RGB LED to a color."""
-        cmd = f"RGB {idx} {r} {g} {b}\n"
-        print(f"Setting RGB LED {idx} to ({r}, {g}, {b})")
-        await self.send_command(cmd)
+    def set_command_delay(self, delay):
+        """Adjust the delay between IR commands for smoother/faster motion."""
+        self.command_delay = delay
+        print(f"Command delay set to {delay}s")
 
-    async def run_demo(self):
-        """Demonstrates motor control."""
-        await self.connect()
-        
-        self.set_command_delay(0.05)  # Faster commands for smoother motion
+# ----- Utility function to find BLE devices -----
+def find_devices():
+    """Synchronous BLE scanning; prints discovered devices."""
+    loop = asyncio.new_event_loop()
+    return loop.run_until_complete(_async_find_devices())
 
-        await self.move_forward(1.0)
-        await self.turn_left(0.5)
-        await self.move_forward(1.0)
-        await self.turn_left(0.5)
-        await self.move_forward(1.0)
-        await self.turn_left(0.5)
-        await self.move_forward(1.0)
-        await self.turn_left(0.5)
+async def _async_find_devices():
+    print("Scanning for BLE devices (5 seconds)...")
+    devices = await BleakScanner.discover(timeout=5.0)
+    for d in devices:
+        print(f"- Name: {d.name}, Address: {d.address}, RSSI: {d.rssi}")
 
-        #await self.move_backward(1.5)
-        #await self.slow_down()
-        #await self.speed_up()
-        #await self.stop()
-
-        #await self.beep(600, 300)
-        await self.set_rgb(1, 255, 0, 0)  # Red
-        await self.set_rgb(1, 0, 255, 0)  # Green
-        await self.set_rgb(1, 0, 0, 255)  # Blue
-        
-        await self.disconnect()
-
-
-async def find_devices():
-    print("Scanning for BLE devices...")
-    devices = await BleakScanner.discover()
-    
-    for device in devices:
-        print(f"Name: {device.name}, Address: {device.address}, RSSI: {device.rssi}")
-
-
-# Run Demo
+# ----- Example usage -----
 if __name__ == "__main__":
-    asyncio.run(find_devices())
-    #robot = WeeecodeRobot()
-    #asyncio.run(robot.run_demo())
+    # 1) Scan for devices (if needed) to find correct address
+    find_devices()
+
+    # 2) Instantiate the robot
+    bot = WeeecodeRobot()
+
+    # 3) Connect
+    bot.connect()
+
+    # 4) Simple moves
+    bot.move_forward(1.5)
+    bot.turn_left(0.75)
+    bot.slow_down()
+    bot.move_forward(1.0)
+    bot.stop()
+
+    # 5) Beep
+    bot.beep(600, 300)
+
+    # 6) Disconnect
+    bot.disconnect()
 
