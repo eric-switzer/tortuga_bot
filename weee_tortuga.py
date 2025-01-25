@@ -9,7 +9,7 @@ Weeemake_Factory_Firmware/twelve_in_one/twelve_in_one.ino
 TODO: check speed control
 """
 import asyncio
-from bleak import BleakClient, BleakError
+from bleak import BleakClient, BleakError, BleakScanner
 
 DEVICE_ADDRESS = "35B598CA-A4A0-5B38-F1CF-4C00EB006299"
 WRITE_CHAR_UUID = "0000f101-0000-1000-8000-00805f9b34fb"
@@ -149,8 +149,18 @@ class WeeecodeRobot:
         
         await self.disconnect()
 
+
+async def find_devices():
+    print("Scanning for BLE devices...")
+    devices = await BleakScanner.discover()
+    
+    for device in devices:
+        print(f"Name: {device.name}, Address: {device.address}, RSSI: {device.rssi}")
+
+
 # Run Demo
 if __name__ == "__main__":
-    robot = WeeecodeRobot()
-    asyncio.run(robot.run_demo())
+    asyncio.run(find_devices())
+    #robot = WeeecodeRobot()
+    #asyncio.run(robot.run_demo())
 
