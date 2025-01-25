@@ -149,10 +149,26 @@ async def _async_find_devices():
     for d in devices:
         print(f"- Name: {d.name}, Address: {d.address}, RSSI: {d.rssi}")
 
-# ----- Example usage -----
+
+def list_ble_services(device_address=DEVICE_ADDRESS):
+    """Lists all BLE services and characteristics for a given device."""
+    loop = asyncio.get_event_loop()
+    return loop.run_until_complete(_async_list_services(device_address))
+
+async def _async_list_services(device_address):
+    """Async function to retrieve BLE services and characteristics."""
+    async with BleakClient(device_address) as client:
+        services = await client.get_services()
+        print(f"\n Connected to {device_address}. Listing services...\n")
+        for service in services:
+            print(f"Service: {service.uuid}")
+            for char in service.characteristics:
+                print(f"  - Characteristic: {char.uuid}, Properties: {char.properties}")
+
 if __name__ == "__main__":
     # 1) Scan for devices (if needed) to find correct address
     find_devices()
+    list_ble_services()
 
     # 2) Instantiate the robot
     bot = WeeecodeRobot()
