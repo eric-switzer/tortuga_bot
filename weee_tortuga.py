@@ -28,27 +28,28 @@ IR_COMMANDS = {
 }
 
 class WeeecodeRobot:
-    """Synchronous BLE interface for Weeecode Robot."""
+    """Synchronous BLE interface for Weeecode Robot, compatible with Jupyter."""
 
     def __init__(self, address=DEVICE_ADDRESS, command_delay=0.05):
         self.address = address
         self.command_delay = command_delay
         self.speed_level = 3
-
-        # Get or create an event loop
-        self.loop = self.get_event_loop()
+        self.loop = self._get_event_loop()
         self.client = BleakClient(self.address, loop=self.loop)
 
-    def get_event_loop(self):
-        """Ensures all async operations run on the same event loop, even in Jupyter."""
+    def _get_event_loop(self):
+        """Ensures all async operations run on the correct event loop, even in Jupyter."""
         try:
             return asyncio.get_running_loop()
         except RuntimeError:
             return asyncio.new_event_loop()
 
     def _run(self, coro):
-        """Runs an async function in the correct event loop."""
-        return asyncio.run(coro) if not self.loop.is_running() else asyncio.ensure_future(coro)
+        """Runs an async function properly within Jupyter or normal scripts."""
+        try:
+            return asyncio.get_running_loop().run_until_complete(coro)
+        except RuntimeError:
+            return asyncio.run(coro)
 
     def connect(self):
         """Synchronously connects to the BLE device."""
@@ -139,7 +140,7 @@ class WeeecodeRobot:
 
 def find_devices():
     """Synchronous BLE scanning; prints discovered devices."""
-    loop = asyncio.new_event_loop()
+    loop = asyncio.get_event_loop()
     return loop.run_until_complete(_async_find_devices())
 
 async def _async_find_devices():
